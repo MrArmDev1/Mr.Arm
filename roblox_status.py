@@ -10,7 +10,7 @@ UPDATE_INTERVAL = 300  # 5 นาที
 CONFIG_FILE = "roblox_config.json"
 
 
-# ================== CONFIG ==================
+# ---------- CONFIG ----------
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return {}
@@ -23,26 +23,9 @@ def save_config(data):
         json.dump(data, f, indent=4)
 
 
-def add_game_group(guild_id, universe_id, group_id, channel_id):
-    data = load_config()
-    gid = str(guild_id)
-
-    if gid not in data:
-        data[gid] = []
-
-    data[gid].append({
-        "universe_id": universe_id,
-        "group_id": group_id,
-        "channel_id": channel_id,
-        "message_id": None
-    })
-
-    save_config(data)
-
-
-# ================== VIEW ==================
+# ---------- BUTTON ----------
 class JoinGameView(discord.ui.View):
-    def __init__(self, game_link):
+    def __init__(self, game_link: str):
         super().__init__(timeout=None)
         self.add_item(
             discord.ui.Button(
@@ -53,40 +36,34 @@ class JoinGameView(discord.ui.View):
         )
 
 
-# ================== COG ==================
+# ---------- COG ----------
 class RobloxStatus(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.bot.loop.create_task(self.force_update())
-        self.update_loop.start()
+        self.update_status.start()
 
     def cog_unload(self):
-        self.update_loop.cancel()
-
-    async def force_update(self):
-        await self.bot.wait_until_ready()
-        await self.update_loop()  # บังคับรันทันที
-    
-def cog_unload(self):
         self.update_status.cancel()
 
     # ---------- ROBLOX API ----------
-    async def fetch_game(self, universe_id):
+    async def fetch_game(self, universe_id: int):
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"https://games.roblox.com/v1/games?universeIds={universe_id}"
             ) as r:
-                return (await r.json())["data"][0]
+                data = await r.json()
+                return data["data"][0]
 
-    async def fetch_thumbnail(self, universe_id):
+    async def fetch_thumbnail(self, universe_id: int):
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"https://thumbnails.roblox.com/v1/games/icons"
                 f"?universeIds={universe_id}&size=512x512&format=Png"
             ) as r:
-                return (await r.json())["data"][0]["imageUrl"]
+                data = await r.json()
+                return data["data"][0]["imageUrl"]
 
-    async def fetch_group(self, group_id):
+    async def fetch_group(self, group_id: int):
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"https://groups.roblox.com/v1/groups/{group_id}"
@@ -94,7 +71,7 @@ def cog_unload(self):
                 return await r.json()
 
     # ---------- EMBED ----------
-    def build_embed(self, game, group, thumbnail):
+    def build_embed(self, game, group=None, thumbnail=None):
         players = game["playing"]
         status = "🟢 ONLINE" if players > 0 else "🔴 OFFLINE"
 
@@ -104,52 +81,56 @@ def cog_unload(self):
             color=discord.Color.green() if players > 0 else discord.Color.red()
         )
 
-        embed.set_thumbnail(url=thumbnail)
-
         embed.add_field(name="👥 Active Players", value=players)
         embed.add_field(name="👣 Visits", value=game["visits"])
         embed.add_field(name="⭐ Favorites", value=game["favoritedCount"])
         embed.add_field(name="🎮 Max Players", value=game["maxPlayers"])
-        embed.add_field(name="🏷 Genre", value=game["genre"] or "All")
 
-        embed.add_field(
-            name="👪 Group",
-            value=f"[{group['name']}](https://www.roblox.com/groups/{group['id']})\n"
-                  f"Members: {group['memberCount']}",
-            inline=False
+        if group:
+            embed.add_field(
+                name="👨‍👩‍👧 Group",
+                value=f"[{group['name']}](https://www.roblox.com/communities/{group['id']})\n👥 {group['memberCount']} Members",
+                inline=False
+            )
+
+        updated = int(
+            datetime.fromisoformat(game["updated"].replace("Z", "")).timestamp()
         )
+        embed.add_field(name="🔄 Updated", value=f"<t:{updated}:R>", inline=False)
 
-        updated = int(datetime.fromisoformat(
-            game["updated"].replace("Z", "")
-        ).timestamp())
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
 
-        embed.add_field(
-            name="🔄 Updated",
-            value=f"<t:{updated}:R>",
-            inline=False
-        )
-
+        embed.set_footer(text=f"Universe ID: {game['id']}")
         return embed
 
-    # ---------- SLASH COMMAND ----------
+    # ---------- COMMAND ----------
     @app_commands.command(
         name="roblox_add_game_group",
-        description="Add Roblox game + group status"
-    )
-    @app_commands.describe(
-        universe_id="Roblox Universe ID",
-        group_id="Roblox Group ID",
-        channel="Channel to send status"
+        description="Add Roblox game + group status to a channel"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def add_game_group_cmd(
+    async def add_game_group(
         self,
         interaction: discord.Interaction,
         universe_id: int,
         group_id: int,
         channel: discord.TextChannel
     ):
-        add_game_group(interaction.guild.id, universe_id, group_id, channel.id)
+        config = load_config()
+        gid = str(interaction.guild.id)
+
+        if gid not in config:
+            config[gid] = []
+
+        config[gid].append({
+            "universe_id": universe_id,
+            "group_id": group_id,
+            "channel_id": channel.id,
+            "message_id": None
+        })
+
+        save_config(config)
         await interaction.response.send_message(
             "✅ Roblox game + group added",
             ephemeral=True
@@ -158,22 +139,21 @@ def cog_unload(self):
     # ---------- LOOP ----------
     @tasks.loop(seconds=UPDATE_INTERVAL)
     async def update_status(self):
-        print("🔄 update_status loop running")
+        config = load_config()
 
-        data = load_config()
-        for guild_id, games in data.items():
+        for guild_id, items in config.items():
             guild = self.bot.get_guild(int(guild_id))
             if not guild:
                 continue
 
-            for cfg in games:
-                channel = guild.get_channel(cfg["channel_id"])
+            for item in items:
+                channel = guild.get_channel(item["channel_id"])
                 if not channel:
                     continue
 
-                game = await self.fetch_game(cfg["universe_id"])
-                group = await self.fetch_group(cfg["group_id"])
-                thumbnail = await self.fetch_thumbnail(cfg["universe_id"])
+                game = await self.fetch_game(item["universe_id"])
+                thumbnail = await self.fetch_thumbnail(item["universe_id"])
+                group = await self.fetch_group(item["group_id"])
 
                 embed = self.build_embed(game, group, thumbnail)
                 view = JoinGameView(
@@ -181,22 +161,22 @@ def cog_unload(self):
                 )
 
                 try:
-                    if cfg["message_id"]:
-                        msg = await channel.fetch_message(cfg["message_id"])
+                    if item["message_id"]:
+                        msg = await channel.fetch_message(item["message_id"])
                         await msg.edit(embed=embed, view=view)
                     else:
                         sent = await channel.send(embed=embed, view=view)
-                        cfg["message_id"] = sent.id
-                        save_config(data)
+                        item["message_id"] = sent.id
+                        save_config(config)
                 except:
                     sent = await channel.send(embed=embed, view=view)
-                    cfg["message_id"] = sent.id
-                    save_config(data)
+                    item["message_id"] = sent.id
+                    save_config(config)
 
     @update_status.before_loop
-    async def before_update(self):
+    async def before_loop(self):
         await self.bot.wait_until_ready()
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(RobloxStatus(bot))
