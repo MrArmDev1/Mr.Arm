@@ -1,18 +1,21 @@
+import os
 import discord
 from discord.ext import commands
-import os
+from dotenv import load_dotenv
 
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+load_dotenv()
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
 async def main():
-    async with bot:
-        await bot.load_extension("roblox_status")
-        await bot.start(os.getenv("TOKEN"))
+    await bot.load_extension("roblox_status")
+    await bot.start(TOKEN)
 
 import asyncio
 asyncio.run(main())
