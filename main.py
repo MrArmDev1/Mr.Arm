@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 import os
 
 # ========= CONFIG =========
-TOKEN = os.getenv("TOKEN")  # ใส่ Token ใน Railway
+TOKEN = os.getenv("TOKEN")  # ตั้งใน Railway Variables
 UPDATE_MINUTES = 5
+
+CHANNEL_ID = 1466099906526842962  # 👈 ใส่ห้องตรงนี้แล้ว
 
 GAMES = [
     {
@@ -22,8 +24,6 @@ GAMES = [
         "message_id": None
     }
 ]
-
-CHANNEL_ID = None
 # ==========================
 
 intents = discord.Intents.default()
@@ -38,31 +38,19 @@ async def on_ready():
     auto_update.start()
 
 
-# ---------- COMMANDS ----------
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setchannel(ctx):
-    global CHANNEL_ID
-    CHANNEL_ID = ctx.channel.id
-    await ctx.send(f"✅ ตั้งห้องนี้เป็นห้อง Game Status แล้ว")
-
-
+# ---------- COMMAND ----------
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def sendnow(ctx):
-    if not CHANNEL_ID:
-        await ctx.send("❌ ยังไม่ได้ตั้งห้อง ใช้ !setchannel ก่อน")
-        return
-
     await update_games(force=True)
-    await ctx.send("✅ ส่งข้อมูลเกมทันทีเรียบร้อย")
+    await ctx.send("✅ ส่งข้อมูลเกมทันทีแล้ว")
 
 
 # ---------- UPDATE LOGIC ----------
 async def update_games(force=False):
-    global CHANNEL_ID
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
+        print("❌ ไม่เจอ Channel")
         return
 
     async with aiohttp.ClientSession() as session:
@@ -127,8 +115,7 @@ async def update_games(force=False):
 
 @tasks.loop(minutes=UPDATE_MINUTES)
 async def auto_update():
-    if CHANNEL_ID:
-        await update_games()
+    await update_games()
 
 
 bot.run(TOKEN)
