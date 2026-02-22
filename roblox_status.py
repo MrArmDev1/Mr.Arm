@@ -57,7 +57,11 @@ class JoinGameView(discord.ui.View):
 class RobloxStatus(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.update_status.start()  # ✅ FIX: ชื่อ loop ต้องตรง
+        self.bot.loop.create_task(self.force_update())  # 👈 เพิ่มบรรทัดนี้
+        self.update_loop.start()
+async def force_update(self):
+    await self.bot.wait_until_ready()
+    await self.update_loop()  # 👈 บังคับให้ส่งทันที 1 ครั้ง
 
     def cog_unload(self):
         self.update_status.cancel()
