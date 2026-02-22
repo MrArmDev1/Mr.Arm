@@ -8,6 +8,18 @@ import guild_config
 UPDATE_INTERVAL = 300  # 5 นาที
 
 
+class JoinGameView(discord.ui.View):
+    def __init__(self, universe_id):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.Button(
+                label="🎮 Join Game",
+                style=discord.ButtonStyle.link,
+                url=f"https://www.roblox.com/games/{universe_id}"
+            )
+        )
+
+
 class RobloxStatus(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -32,7 +44,7 @@ class RobloxStatus(commands.Cog):
                     return None
                 return await r.json()
 
-    # ---------- EMBED ----------
+    # ---------- EMBED (เดิม + เพิ่ม thumbnail) ----------
     def build_embed(self, game, group=None):
         players = game["playing"]
         status = "🟢 ONLINE" if players > 0 else "🔴 OFFLINE"
@@ -65,43 +77,52 @@ class RobloxStatus(commands.Cog):
             ).timestamp()
         )
         embed.add_field(name="🔄 Updated", value=f"<t:{updated}:R>", inline=False)
-        embed.set_footer(text=f"Universe ID: {game['id']}")
 
+        # 🖼 Thumbnail เกม
+        if game.get("thumbnail"):
+            embed.set_thumbnail(url=game["thumbnail"])
+
+        embed.set_footer(text=f"Universe ID: {game['id']}")
         return embed
 
-    # ---------- SLASH COMMANDS ----------
+    # ---------- COMMANDS ----------
     @app_commands.command(
-        name="roblox_status_setup",
-        description="Setup Roblox server status"
+        name="roblox_add_game",
+        description="Add Roblox game status"
     )
     @app_commands.describe(
         universe_id="Roblox Universe ID",
         channel="Channel to show status"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def setup(self, interaction, universe_id: int, channel: discord.TextChannel):
-        guild_config.set_status_config(
+    async def add_game(self, interaction, universe_id: int, channel: discord.TextChannel):
+        guild_config.add_game(
             interaction.guild.id,
             universe_id,
             channel.id
         )
         await interaction.response.send_message(
-            "✅ Roblox status configured",
+            "✅ Game added",
             ephemeral=True
         )
 
     @app_commands.command(
         name="roblox_add_game_group",
-        description="Link Roblox group to current game"
+        description="Link group to a Roblox game"
     )
     @app_commands.describe(
+        universe_id="Roblox Universe ID",
         group_id="Roblox Group ID"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def add_group(self, interaction, group_id: int):
-        guild_config.set_group(interaction.guild.id, group_id)
+    async def add_group(self, interaction, universe_id: int, group_id: int):
+        guild_config.set_game_group(
+            interaction.guild.id,
+            universe_id,
+            group_id
+        )
         await interaction.response.send_message(
-            "✅ Roblox group linked to game",
+            "✅ Group linked to game",
             ephemeral=True
         )
 
@@ -110,34 +131,44 @@ class RobloxStatus(commands.Cog):
     async def update_status(self):
         try:
             for guild in self.bot.guilds:
-                config = guild_config.get_status_config(guild.id)
-                if not config:
+                games = guild_config.get_games(guild.id)
+                if not games:
                     continue
 
-                channel = guild.get_channel(config["channel_id"])
-                if not channel:
-                    continue
+                for universe_id, cfg in games.items():
+                    channel = guild.get_channel(cfg["channel_id"])
+                    if not channel:
+                        continue
 
-                game = await self.fetch_game(config["universe_id"])
-                if not game:
-                    continue
+                    game = await self.fetch_game(int(universe_id))
+                    if not game:
+                        continue
 
-                group = None
-                if config.get("group_id"):
-                    group = await self.fetch_group(config["group_id"])
+                    group = None
+                    if cfg.get("group_id"):
+                        group = await self.fetch_group(cfg["group_id"])
 
-                embed = self.build_embed(game, group)
+                    embed = self.build_embed(game, group)
+                    view = JoinGameView(universe_id)
 
-                try:
-                    if config.get("message_id"):
-                        msg = await channel.fetch_message(config["message_id"])
-                        await msg.edit(embed=embed)
-                    else:
-                        sent = await channel.send(embed=embed)
-                        guild_config.set_message_id(guild.id, sent.id)
-                except:
-                    sent = await channel.send(embed=embed)
-                    guild_config.set_message_id(guild.id, sent.id)
+                    try:
+                        if cfg.get("message_id"):
+                            msg = await channel.fetch_message(cfg["message_id"])
+                            await msg.edit(embed=embed, view=view)
+                        else:
+                            sent = await channel.send(embed=embed, view=view)
+                            guild_config.set_message_id(
+                                guild.id,
+                                universe_id,
+                                sent.id
+                            )
+                    except:
+                        sent = await channel.send(embed=embed, view=view)
+                        guild_config.set_message_id(
+                            guild.id,
+                            universe_id,
+                            sent.id
+                        )
 
         except Exception as e:
             print("❌ RobloxStatus error:", e)
@@ -145,7 +176,7 @@ class RobloxStatus(commands.Cog):
     @update_status.before_loop
     async def before_update(self):
         await self.bot.wait_until_ready()
-        print("✅ Roblox status loop running")
+        print("✅ Roblox multi-game status loop running")
 
 
 async def setup(bot):
